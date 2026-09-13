@@ -123,6 +123,48 @@ def _decode_im03w(raw_b64: str) -> list[SensorReading]:
 
 
 # ------------------------------------------------------------------
+# INT-14-BW (4-probe WiFi/BLE BBQ thermometer; each probe reads both a
+# food/tip temperature and an ambient/grill temperature)
+# ------------------------------------------------------------------
+
+# DP 109 = real_time_temperature: base64 of 9 little-endian int16 values, /10.
+# Verified live 2026-09-13 against Itay's unit (unit DP101='C'):
+#   [22.0, 23.0, 25-26, 26-25, 29.0, 25.0, 38.0, 35.0, 98.9]
+# The 8 leading values are the 4 probes interleaved as (food, ambient); the
+# only values that fluctuated between polls were indices 2/3 (a connected
+# probe's two sensors). Index 8 is a trailing status/base field, not a probe,
+# so it is ignored. A disconnected probe or garbage reads outside a sane
+# range and is surfaced as None.
+_INT14_TEMP_MIN = -40.0     # sensor floor
+_INT14_TEMP_MAX = 300.0     # ambient max per spec (300 °C / 572 °F)
+
+
+def _decode_int14bw(raw_b64: str) -> list[SensorReading]:
+    try:
+        data = base64.b64decode(raw_b64)
+    except Exception:
+        return []
+    vals = [
+        struct.unpack_from("<h", data, i)[0] / 10.0
+        for i in range(0, len(data) - 1, 2)
+    ]
+    readings: list[SensorReading] = []
+    for probe in range(4):
+        fi, ai = probe * 2, probe * 2 + 1
+        if ai >= len(vals):
+            break
+        for kind, idx in (("Food", fi), ("Ambient", ai)):
+            t = vals[idx]
+            if not (_INT14_TEMP_MIN <= t <= _INT14_TEMP_MAX):
+                t = None
+            readings.append(SensorReading(
+                name=f"Probe {probe + 1} {kind}",
+                temperature=t, humidity=None,
+            ))
+    return readings
+
+
+# ------------------------------------------------------------------
 # Registry — add new products here.
 # Key = Tuya `productId` string from the device record.
 # ------------------------------------------------------------------
@@ -139,6 +181,14 @@ PRODUCTS: dict[str, ProductSpec] = {
         # buzzer_dp / backlight_dp / hour_mode_dp / temp_reminder_dp / humi_reminder_dp
         # not yet confirmed — the raw bool DPs (128/132/133/134/136) need to be
         # mapped by toggling each feature in the Inkbird app one at a time.
+    ),
+    "f9tfzbf2i1fzlv6q": ProductSpec(
+        product_id="f9tfzbf2i1fzlv6q",
+        model="INT-14-BW",
+        current_data_dp="109",   # real_time_temperature blob (9 int16 LE, /10)
+        scan_trigger_dp=None,    # WiFi unit pushes updates; cloud get returns latest
+        decoder=_decode_int14bw,
+        temp_unit_dp="101",      # "C" / "F"
     ),
 }
 

@@ -1,7 +1,7 @@
 {
   "domain": "inkbird_wifi",
   "name": "Inkbird Wifi",
-  "version": "1.3.0",
+  "version": "1.3.1-int14bw",
   "integration_type": "hub",
   "config_flow": true,
   "documentation": "https://github.com/errrrata/hacs-inkbird-wifi",
